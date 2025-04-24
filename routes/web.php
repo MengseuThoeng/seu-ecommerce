@@ -121,10 +121,15 @@
     Route::resource('/comment', 'PostCommentController');
 // Coupon
     Route::post('/coupon-store', [CouponController::class, 'couponStore'])->name('coupon-store');
+// // Payment
+//     Route::get('payment', [PayPalController::class, 'payment'])->name('payment');
+//     Route::get('cancel', [PayPalController::class, 'cancel'])->name('payment.cancel');
+//     Route::get('payment/success', [PayPalController::class, 'success'])->name('payment.success');
+
 // Payment
-    Route::get('payment', [PayPalController::class, 'payment'])->name('payment');
-    Route::get('cancel', [PayPalController::class, 'cancel'])->name('payment.cancel');
-    Route::get('payment/success', [PayPalController::class, 'success'])->name('payment.success');
+Route::get('payment', [PayPalController::class, 'payment'])->name('payment');
+Route::get('payment/cancel', [PayPalController::class, 'cancel'])->name('payment.cancel'); // Changed URL
+Route::get('payment/success', [PayPalController::class, 'success'])->name('payment.success');
 
 
 // Backend section start

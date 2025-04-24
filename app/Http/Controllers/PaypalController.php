@@ -1,84 +1,102 @@
 <?php
 
 namespace App\Http\Controllers;
-use Srmklive\PayPal\Services\ExpressCheckout;
+use Srmklive\PayPal\Services\PayPal as PayPalClient;
 use Illuminate\Http\Request;
-use NunoMaduro\Collision\Provider;
 use App\Models\Cart;
 use App\Models\Product;
 use DB;
+
 class PaypalController extends Controller
 {
     public function payment()
     {
-        $cart = Cart::where('user_id',auth()->user()->id)->where('order_id',null)->get()->toArray();
+        $cart = Cart::where('user_id', auth()->user()->id)->where('order_id', null)->get();
         
-        $data = [];
-        
-        // return $cart;
-        $data['items'] = array_map(function ($item) use($cart) {
-            $name=Product::where('id',$item['product_id'])->pluck('title');
-            return [
-                'name' =>$name ,
-                'price' => $item['price'],
-                'desc'  => 'Thank you for using paypal',
-                'qty' => $item['quantity']
-            ];
-        }, $cart);
+        if ($cart->isEmpty()) {
+            return redirect()->back()->with('error', 'Your cart is empty');
+        }
 
-        $data['invoice_id'] ='ORD-'.strtoupper(uniqid());
-        $data['invoice_description'] = "Order #{$data['invoice_id']} Invoice";
-        $data['return_url'] = route('payment.success');
-        $data['cancel_url'] = route('payment.cancel');
-
+        // Calculate total
         $total = 0;
-        foreach($data['items'] as $item) {
-            $total += $item['price']*$item['qty'];
+        foreach ($cart as $item) {
+            $total += $item->price * $item->quantity;
         }
 
-        $data['total'] = $total;
-        if(session('coupon')){
-            $data['shipping_discount'] = session('coupon')['value'];
+        // Apply coupon if exists
+        if(session('coupon')) {
+            $total -= session('coupon')['value'];
         }
-        Cart::where('user_id', auth()->user()->id)->where('order_id', null)->update(['order_id' => session()->get('id')]);
 
-        // return session()->get('id');
-        $provider = new ExpressCheckout;
-  
-        $response = $provider->setExpressCheckout($data);
-    
-        return redirect($response['paypal_link']);
+        // Update cart with order ID
+        Cart::where('user_id', auth()->user()->id)
+            ->where('order_id', null)
+            ->update(['order_id' => session()->get('id')]);
+
+        // Initialize PayPal
+        $provider = new PayPalClient;
+        $provider->setApiCredentials(config('paypal'));
+        $paypalToken = $provider->getAccessToken();
+
+        // Create order data
+        $orderData = [
+            "intent" => "CAPTURE",
+            "application_context" => [
+                "return_url" => route('payment.success'),
+                "cancel_url" => route('payment.cancel'),
+                "brand_name" => config('app.name', 'Laravel'),
+                "shipping_preference" => "NO_SHIPPING"
+            ],
+            "purchase_units" => [
+                [
+                    "reference_id" => 'ORD-'.strtoupper(uniqid()),
+                    "description" => "Order from " . config('app.name', 'Laravel'),
+                    "amount" => [
+                        "currency_code" => "USD",
+                        "value" => $total
+                    ]
+                ]
+            ]
+        ];
+
+        // Create PayPal order
+        $response = $provider->createOrder($orderData);
+
+        // Redirect to PayPal if order created successfully
+        if (isset($response['id']) && $response['id'] != null) {
+            foreach ($response['links'] as $link) {
+                if ($link['rel'] == 'approve') {
+                    return redirect()->away($link['href']);
+                }
+            }
+        }
+
+        return redirect()->back()->with('error', 'Something went wrong with PayPal');
     }
-   
-    /**
-     * Responds with a welcome message with instructions
-     *
-     * @return \Illuminate\Http\Response
-     */
+
     public function cancel()
     {
-        dd('Your payment is canceled. You can create cancel page here.');
+        return redirect()->route('cart')->with('error', 'Your payment was canceled');
     }
-  
-    /**
-     * Responds with a welcome message with instructions
-     *
-     * @return \Illuminate\Http\Response
-     */
+
     public function success(Request $request)
     {
-        $provider = new ExpressCheckout;
-        $response = $provider->getExpressCheckoutDetails($request->token);
-        // return $response;
-  
-        if (in_array(strtoupper($response['ACK']), ['SUCCESS', 'SUCCESSWITHWARNING'])) {
-            request()->session()->flash('success','You successfully pay from Paypal! Thank You');
+        $provider = new PayPalClient;
+        $provider->setApiCredentials(config('paypal'));
+        $paypalToken = $provider->getAccessToken();
+        
+        // Capture the order payment
+        $response = $provider->capturePaymentOrder($request->token);
+
+        // Process successful payment
+        if (isset($response['status']) && $response['status'] == 'COMPLETED') {
+            // Payment successful
+            session()->flash('success', 'Payment successful! Thank you for your purchase.');
             session()->forget('cart');
             session()->forget('coupon');
             return redirect()->route('home');
         }
-  
-        request()->session()->flash('error','Something went wrong please try again!!!');
-        return redirect()->back();
+
+        return redirect()->back()->with('error', 'Something went wrong with your payment');
     }
 }

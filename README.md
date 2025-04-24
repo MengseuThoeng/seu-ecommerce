@@ -34,7 +34,7 @@ A full-fledged **eCommerce solution** built on **Laravel 10**, featuring a moder
 
 ### 🔹 **Step 1: Clone the Repository**
 ```sh
-git clone https://github.com/Prajwal100/Complete-Ecommerce-in-laravel-10.git
+git clone 
 cd Complete-Ecommerce-in-laravel-10
 ```
 
